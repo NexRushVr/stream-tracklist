@@ -1,0 +1,40 @@
+name: Scraper broken (vodvod / Kick API change)
+description: vodvod.top or Kick stopped returning what we expect.
+labels: ["scraper-broken"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Third-party APIs change shape. Drop in a sample URL or handle that
+        currently fails so the fix can be tested.
+  - type: input
+    id: handle
+    attributes:
+      label: Streamer URL or handle that fails
+      placeholder: "https://kick.com/somehandle or https://vodvod.top/channels/@somehandle"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Which source resolver
+      options:
+        - vodvod.top
+        - kick.com
+        - Direct .m3u8 URL
+        - Local MP4
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Error output
+      description: Paste the failing lines from your terminal.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else (manual API inspection, etc.)
+      description: If you grabbed the API response in DevTools and noticed a renamed field, that's gold — paste it here.

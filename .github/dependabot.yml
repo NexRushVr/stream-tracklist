@@ -1,0 +1,33 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      python-deps:
+        patterns:
+          - "*"
+        # shazamio is exact-version pinned and historically breaks its API on
+        # patch releases — surface those PRs separately so they aren't lost in
+        # the group.
+        exclude-patterns:
+          - "shazamio"
+          - "shazamio-core"
+    # Don't auto-bump pinned floors for non-shazamio deps; security advisories
+    # still come through regardless.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
+      # …but keep an eye on shazamio patches because that's where it breaks.
+      - dependency-name: "shazamio"
+        update-types: []
+      - dependency-name: "shazamio-core"
+        update-types: []
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"

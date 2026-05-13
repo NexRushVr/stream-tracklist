@@ -1,0 +1,33 @@
+# Local data / per-run output
+logs/
+*_songs.csv
+*_songs.txt
+*.log
+
+# Local user config + scheduler script (the *.example.* version is committed)
+.env
+.cache
+.spotify_token_cache
+scheduled_weekly_scan.bat
+scheduled_scan.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Environments
+.venv/
+venv/
+env/
+
+# IDE / tooling
+.vscode/
+.idea/
+.claude/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,65 @@
+name: Bug report
+description: Something broke that you don't think should have.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please give us enough info to reproduce it.
+        For scraper-broken-by-API-change issues (vodvod.top, Kick), use the
+        "Scraper broken" template instead — it asks for the right details.
+  - type: textarea
+    id: command
+    attributes:
+      label: Exact command you ran
+      description: Paste the `python stream_songs.py ...` line.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: Include the relevant lines of terminal output (or a paste of the full output if short).
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version (`python --version`)
+      placeholder: "3.12.3"
+    validations:
+      required: true
+  - type: input
+    id: ffmpeg
+    attributes:
+      label: ffmpeg version (`ffmpeg -version | head -1`)
+      placeholder: "ffmpeg version 7.0.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux
+        - Other (specify in "What happened")
+    validations:
+      required: true
+  - type: textarea
+    id: deps
+    attributes:
+      label: Relevant package versions
+      description: "`pip freeze | grep -iE 'shazamio|spotipy|aiohttp'`"
+      render: shell

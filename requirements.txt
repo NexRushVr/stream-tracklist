@@ -1,0 +1,10 @@
+spotipy==2.26.0
+python-dotenv>=1.0.0
+shazamio==0.8.1
+shazamio-core==1.1.2
+aiohttp>=3.8.3,<4.0.0
+aiofiles>=23.2.1,<24.0.0
+anyio>=4.3.0,<5.0.0
+aiohttp-retry>=2.8.3,<3.0.0
+pydantic>=2.9.2,<3.0.0
+dataclass-factory>=2.16,<3.0

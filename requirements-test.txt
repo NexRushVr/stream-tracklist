@@ -1,0 +1,9 @@
+# Minimal install for running the unit-test suite.
+#
+# The tests cover only the pure-logic modules (output formatting, dedup,
+# source resolution, streamer-log JSON). recognizer.py and spotify_client.py
+# guard their heavy imports (shazamio, spotipy) with try/except ImportError
+# so CI can run the suite without the full audio stack.
+#
+# To do real end-to-end development, install requirements-dev.txt instead.
+pytest>=8.0

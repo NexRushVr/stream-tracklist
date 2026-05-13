@@ -1,0 +1,53 @@
+[project]
+name = "stream-tracklist"
+version = "1.0.0"
+description = "Auto-Shazam a Twitch/Kick VOD and build a Spotify playlist of every song that played."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "NexRushVr" }]
+keywords = [
+    "shazam", "spotify", "vod", "twitch", "kick", "vodvod",
+    "music-recognition", "ffmpeg", "vrchat", "streamer-tools",
+    "playlist-generator", "shazamio",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Analysis",
+]
+dependencies = [
+    "spotipy==2.26.0",
+    "python-dotenv>=1.0.0",
+    "shazamio==0.8.1",
+    "shazamio-core==1.1.2",
+    "aiohttp>=3.8.3,<4.0.0",
+    "aiofiles>=23.2.1,<24.0.0",
+    "anyio>=4.3.0,<5.0.0",
+    "aiohttp-retry>=2.8.3,<3.0.0",
+    "pydantic>=2.9.2,<3.0.0",
+    "dataclass-factory>=2.16,<3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/NexRushVr/stream-tracklist"
+Issues = "https://github.com/NexRushVr/stream-tracklist/issues"
+Changelog = "https://github.com/NexRushVr/stream-tracklist/blob/main/CHANGELOG.md"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
