@@ -1,0 +1,42 @@
+# Curated streamer list for daily --streamer-mode runs.
+# One handle per line. Blank lines and #-comments are ignored.
+# Prefix Kick handles with "kick:". vodvod.top (Twitch) handles otherwise.
+#
+# Usage:
+#   python stream_songs.py --streamer-mode --streamers-file daily_streamers.txt
+# --streamer-mode skips VODs already in logs/<handle>.json, so a daily run only
+# scans each streamer's NEW VODs. The first run backfills their recent history.
+#
+# All handles below were verified live on vodvod.top (2026-05-29) with recent
+# VODs. Re-verify periodically: handles drift and VODs age out (~11 days).
+#
+# Spotify note: a full first run can exhaust Spotify's daily search quota. That
+# no longer hangs — recognitions are saved to *_matches.jsonl and unresolved
+# tracks fall back to /search/ URLs. The next day, run:
+#   python stream_songs.py --backfill-spotify --streamers-file daily_streamers.txt
+# (or just `--backfill-spotify`) to fill them in without re-scanning audio.
+
+# ── VRChat — proven high-yield (already tracked, hundreds of songs each) ──
+abehamm
+moonbuvr
+zayi
+eevi
+icemiyuki_
+scomfy
+
+# ── VRChat — biggest verified DJ / dance streamers ──
+isthisrealvr        # ~813 avg viewers, dance/wiggle
+blu_haze            # ~1017 avg viewers, dance + face tracking
+chud_vr             # ~869 avg viewers, category "DJs" — DJ SETS / bangers
+babydollobscurity   # high-volume dance streamer, 16 recent VODs
+findtherabbit       # category "DJs" — hardstyle / hard dance (cleanest audio)
+aphroditevr         # bass / dance sets
+niiiny              # dance, continuous music
+sokkzvr             # dance + face tracking
+lichbait            # song-request heavy/EDM
+crazymangovr        # wiggle / dance
+
+# ── Non-VRChat music / DJ (genre overlaps the VR rave scene) ──
+hard_music_tv       # category "DJs" — hardstyle / hardcore, near-daily
+hotbeatstv          # category "DJs" — clubs/festivals EDM, biggest DJ channel
+mogra               # Akihabara club (anison/EDM), near-daily DJ sets

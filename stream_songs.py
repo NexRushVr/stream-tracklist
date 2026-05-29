@@ -18,8 +18,21 @@ try:
 except ImportError:
     pass
 
-from src import __version__, extractor, output, recognizer, source
-from src import spotify_client, streamer_log
+from src import __version__, extractor, matches, output, recognizer, source
+from src import spotify_client, streamer_log, youtube_playlist
+
+
+def _read_streamers_file(path: str) -> list[str]:
+    """Read streamer handles from a text file: one per line, first whitespace
+    token used, blank lines and '#' comments ignored. Preserves order."""
+    handles: list[str] = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.split("#", 1)[0].strip()
+            if not line:
+                continue
+            handles.append(line.split()[0])
+    return handles
 
 
 def parse_args() -> argparse.Namespace:
@@ -37,6 +50,20 @@ def parse_args() -> argparse.Namespace:
                              "Globs <handle>*_songs.csv for each handle and dedup-appends every Spotify URL "
                              "found into a playlist named after the handle. No audio scanning. "
                              "(e.g. --rebuild eevi abehamm)")
+    parser.add_argument("--backfill-spotify", nargs="*", metavar="HANDLE", default=None,
+                        help="Retry Spotify resolution for unresolved rows in existing "
+                             "*_songs.csv files (those that fell back to a /search/ URL, e.g. "
+                             "because the daily quota was hit mid-scan). Uses the ISRC column "
+                             "for exact lookups when present, rewrites the CSVs in place, and "
+                             "dedup-appends newly-resolved tracks to each handle's playlist. "
+                             "No audio scanning. Pass handles to scope it (e.g. --backfill-spotify "
+                             "moonbuvr zayi) or no args to backfill every CSV in --output-dir.")
+    parser.add_argument("--from-youtube", metavar="URL", default=None,
+                        help="Convert a YouTube playlist into a Spotify playlist (no audio "
+                             "scanning — reads video titles via yt-dlp, searches Spotify, "
+                             "dedup-appends into a playlist named after the YouTube playlist "
+                             "or --playlist-name). e.g. --from-youtube "
+                             "\"https://youtube.com/playlist?list=...\"")
     parser.add_argument("source_input", metavar="SOURCE", nargs="?",
                         help="Local MP4 path, M3U8 URL, or vodvod.top URL")
     parser.add_argument("--all", action="store_true",
@@ -70,8 +97,16 @@ def parse_args() -> argparse.Namespace:
                              "Defaults to vodvod.top; prefix with 'kick:' for Kick.com "
                              "(e.g. --streamers eevi kick:abehamm). "
                              "Implies --all. When set, SOURCE is not required.")
+    parser.add_argument("--streamers-file", metavar="PATH", default=None,
+                        help="Read streamer handles from a file (one per line; blank lines and "
+                             "'#' comments ignored; 'kick:' prefix supported). Merged with any "
+                             "--streamers. Handy for a curated daily-run list. Use with --streamer-mode.")
     parser.add_argument("--rescan", action="store_true",
                         help="In --streamer-mode, re-process VODs even if logged as done")
+    parser.add_argument("--fresh", action="store_true",
+                        help="Ignore any existing <name>_matches.jsonl artifact and rescan "
+                             "from the start (default: resume an interrupted scan / re-resolve "
+                             "a completed one without re-fingerprinting audio)")
     parser.add_argument("--log-dir", default="logs",
                         help="Directory for per-streamer JSON logs (default: ./logs)")
     parser.add_argument("--verbose", action="store_true",
@@ -81,14 +116,46 @@ def parse_args() -> argparse.Namespace:
 
     args = parser.parse_args()
 
-    # Inspection / rebuild commands short-circuit before any source validation.
-    if args.list_streamers or args.show_streamer or args.rebuild:
+    # Resolve --streamers-file once; it can scope both a scan (--streamers) and
+    # a --backfill-spotify run. 'kick:'-prefixed handles are kept verbatim for
+    # scanning but stripped for backfill (which works off local CSVs by handle).
+    file_handles: list[str] = []
+    if args.streamers_file:
+        try:
+            file_handles = _read_streamers_file(args.streamers_file)
+        except OSError as exc:
+            parser.error(f"--streamers-file could not be read: {exc}")
+        if not file_handles:
+            parser.error(f"--streamers-file {args.streamers_file!r} contained no handles")
+
+    # Inspection / rebuild / youtube commands short-circuit before any
+    # SOURCE validation — none of them scan audio.
+    if (args.list_streamers or args.show_streamer or args.rebuild
+            or args.from_youtube or args.backfill_spotify is not None):
         if args.rebuild and not spotify_client.credentials_available():
             parser.error("--rebuild requires SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET in .env")
+        if args.from_youtube and not spotify_client.credentials_available():
+            parser.error("--from-youtube requires SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET in .env")
+        if args.backfill_spotify is not None:
+            if not spotify_client.credentials_available():
+                parser.error("--backfill-spotify requires SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET in .env")
+            # Let --streamers-file scope the backfill too (handles, kick: stripped).
+            for h in file_handles:
+                bare = h[5:] if h.lower().startswith("kick:") else h
+                if bare not in args.backfill_spotify:
+                    args.backfill_spotify.append(bare)
         return args
 
+    if file_handles:
+        # Merge with --streamers (file appended), de-duplicated, order preserved.
+        merged = list(args.streamers or [])
+        for h in file_handles:
+            if h not in merged:
+                merged.append(h)
+        args.streamers = merged
+
     if args.streamers and not args.streamer_mode:
-        parser.error("--streamers only works with --streamer-mode")
+        parser.error("--streamers / --streamers-file only work with --streamer-mode")
     if args.streamers:
         # Multi-streamer mode: SOURCE is not required, --all is implied.
         args.all = True
@@ -164,90 +231,134 @@ async def process_vod(
             print(f"  {h:02d}:{m:02d}:{s:02d}")
         return []
 
-    attempts_per_slot = 1 + args.retries
-    retry_step = args.interval // attempts_per_slot
-    print(f"\nSampling {len(timestamps)} timestamps every {args.interval}s "
-          f"({args.clip_duration}s clips, {attempts_per_slot} attempt(s) per slot)...\n")
+    # Per-VOD recognition artifact: written incrementally during the scan so a
+    # crash / quota stall / Ctrl-C never loses recognitions, and a re-run can
+    # resume from where it stopped (or just re-resolve a completed scan).
+    base_name = output.derive_output_name(file_name)
+    os.makedirs(args.output_dir, exist_ok=True)
+    artifact_path = matches.path_for(args.output_dir, base_name)
 
-    loop = asyncio.get_event_loop()
     results: list[recognizer.RecognitionResult] = []
-    consecutive_failures = 0
-    consecutive_403s = 0
+    scan_timestamps = timestamps
+    skip_scan = False
 
-    for i, ts in enumerate(timestamps):
-        ts_str = output.format_timestamp(ts)
-        print(f"[{i+1}/{len(timestamps)}] {ts_str}  ", end="", flush=True)
+    if args.fresh:
+        matches.clear(artifact_path)
+    else:
+        prior = matches.read(artifact_path)
+        if prior.done:
+            # Completed scan (even one that found zero songs) — re-resolve from
+            # the artifact, never re-fingerprint. Avoids re-appending a done
+            # marker on every re-run of a no-match VOD.
+            print(f"Found a complete matches artifact ({len(prior.matches)} match(es)) — "
+                  f"re-resolving without re-scanning audio.")
+            print(f"  (delete {os.path.basename(artifact_path)} or pass --fresh to force a rescan)")
+            results = prior.matches
+            skip_scan = True
+        elif prior.last_ts is not None:
+            resume_from = prior.last_ts + args.interval
+            scan_timestamps = [t for t in timestamps if t >= resume_from]
+            results = list(prior.matches)
+            print(f"Resuming: recovered {len(prior.matches)} match(es), continuing from "
+                  f"{output.format_timestamp(resume_from)} "
+                  f"({len(scan_timestamps)} of {len(timestamps)} slots remaining).")
 
-        slot_result = None
-        slot_failed = False
-        slot_error_msg = ""
+    if not skip_scan:
+        attempts_per_slot = 1 + args.retries
+        retry_step = args.interval // attempts_per_slot
+        print(f"\nSampling {len(scan_timestamps)} timestamps every {args.interval}s "
+              f"({args.clip_duration}s clips, {attempts_per_slot} attempt(s) per slot)...\n")
 
-        for attempt in range(attempts_per_slot):
-            sample_ts = ts + attempt * retry_step
-            clip_path = None
-            try:
-                clip_path = await loop.run_in_executor(
-                    None, extractor.extract_clip, resolved_url, sample_ts, args.clip_duration
-                )
-            except extractor.ExtractionError as exc:
-                if attempt == 0:
-                    consecutive_failures += 1
-                    slot_failed = True
-                    slot_error_msg = str(exc)
-                if args.verbose and attempt > 0:
-                    print(f"\n    retry {attempt} extraction failed", end="", flush=True)
-                continue
-
-            try:
-                slot_result = await recognizer.recognize_clip(clip_path, sample_ts)
-            finally:
-                if clip_path and os.path.exists(clip_path):
-                    try:
-                        os.unlink(clip_path)
-                    except OSError:
-                        pass
-
-            if slot_result:
-                break
-
-            if attempt < attempts_per_slot - 1:
-                if args.verbose:
-                    print(f"\n    +{retry_step}s  ", end="", flush=True)
-                await asyncio.sleep(0.5)
-
-        if slot_failed:
-            is_403 = "403" in slot_error_msg or "Forbidden" in slot_error_msg
-            if is_403:
-                consecutive_403s += 1
-                print("[skip] 403 Forbidden — CDN blocks access")
-                if consecutive_403s == 3:
-                    print("\n  WARNING: CDN is returning 403 Forbidden on every segment.")
-                    print("  This VOD's stream segments are not publicly accessible.")
-                    print("  Tip: try a different channel or grab the .m3u8 URL from browser DevTools.\n")
-                if consecutive_403s >= 5:
-                    print(f"  Aborting this VOD after {consecutive_403s} consecutive 403s.\n")
-                    break
-            else:
-                consecutive_403s = 0
-                print("[skip] extraction failed")
-                if consecutive_failures % 10 == 0:
-                    print(f"  ({consecutive_failures} consecutive extraction failures — continuing)")
-            await asyncio.sleep(1.0)
-            continue
-
+        loop = asyncio.get_event_loop()
         consecutive_failures = 0
         consecutive_403s = 0
+        scan_aborted = False
 
-        if slot_result:
-            results.append(slot_result)
-            if args.verbose:
-                print(f"[match] \"{slot_result.title}\" by {slot_result.artist}")
+        for i, ts in enumerate(scan_timestamps):
+            ts_str = output.format_timestamp(ts)
+            print(f"[{i+1}/{len(scan_timestamps)}] {ts_str}  ", end="", flush=True)
+
+            slot_result = None
+            slot_extracted_any = False
+            slot_error_msg = ""
+
+            for attempt in range(attempts_per_slot):
+                sample_ts = ts + attempt * retry_step
+                clip_path = None
+                try:
+                    clip_path = await loop.run_in_executor(
+                        None, extractor.extract_clip, resolved_url, sample_ts, args.clip_duration
+                    )
+                except extractor.ExtractionError as exc:
+                    slot_error_msg = str(exc)
+                    if args.verbose and attempt > 0:
+                        print(f"\n    retry {attempt} extraction failed", end="", flush=True)
+                    continue
+
+                slot_extracted_any = True
+
+                try:
+                    slot_result = await recognizer.recognize_clip(clip_path, sample_ts)
+                finally:
+                    if clip_path and os.path.exists(clip_path):
+                        try:
+                            os.unlink(clip_path)
+                        except OSError:
+                            pass
+
+                if slot_result:
+                    break
+
+                if attempt < attempts_per_slot - 1:
+                    if args.verbose:
+                        print(f"\n    +{retry_step}s  ", end="", flush=True)
+                    await asyncio.sleep(0.5)
+
+            # A slot is an extraction failure only if NO attempt produced a clip.
+            # A clip that extracted on a retry and matched must still be recorded.
+            if slot_result is None and not slot_extracted_any:
+                consecutive_failures += 1
+                is_403 = "403" in slot_error_msg or "Forbidden" in slot_error_msg
+                if is_403:
+                    consecutive_403s += 1
+                    print("[skip] 403 Forbidden — CDN blocks access")
+                    if consecutive_403s == 3:
+                        print("\n  WARNING: CDN is returning 403 Forbidden on every segment.")
+                        print("  This VOD's stream segments are not publicly accessible.")
+                        print("  Tip: try a different channel or grab the .m3u8 URL from browser DevTools.\n")
+                    if consecutive_403s >= 5:
+                        print(f"  Aborting this VOD after {consecutive_403s} consecutive 403s.\n")
+                        scan_aborted = True
+                        break
+                else:
+                    consecutive_403s = 0
+                    print("[skip] extraction failed")
+                    if consecutive_failures % 10 == 0:
+                        print(f"  ({consecutive_failures} consecutive extraction failures — continuing)")
+                matches.record_slot(artifact_path, ts, None)
+                await asyncio.sleep(1.0)
+                continue
+
+            consecutive_failures = 0
+            consecutive_403s = 0
+
+            if slot_result:
+                results.append(slot_result)
+                matches.record_slot(artifact_path, ts, slot_result)
+                if args.verbose:
+                    print(f"[match] \"{slot_result.title}\" by {slot_result.artist}")
+                else:
+                    print(f"[match] {slot_result.title} — {slot_result.artist}")
             else:
-                print(f"[match] {slot_result.title} — {slot_result.artist}")
-        else:
-            print("[no match]")
+                matches.record_slot(artifact_path, ts, None)
+                print("[no match]")
 
-        await asyncio.sleep(1.0)
+            await asyncio.sleep(1.0)
+
+        # Only mark the scan complete if it ran to the end (not a 403 abort), so
+        # an interrupted scan resumes next time instead of being treated as done.
+        if not scan_aborted:
+            matches.mark_done(artifact_path, len(timestamps))
 
     unique = recognizer.deduplicate(results)
 
@@ -257,7 +368,7 @@ async def process_vod(
     for r in unique:
         spot_url, spot_uri = None, None
         if has_spotify:
-            spot_url, spot_uri = spotify_client.search_track(r.title, r.artist)
+            spot_url, spot_uri = spotify_client.search_track(r.title, r.artist, r.isrc)
             status = "found" if spot_url else "not found"
             print(f"  {r.artist} — {r.title}: {status}")
         entries.append(output.SongEntry(
@@ -267,12 +378,12 @@ async def process_vod(
             spotify_url=spot_url,
             spotify_uri=spot_uri,
             youtube_url=output.make_youtube_url(r.title, r.artist),
+            isrc=r.isrc,
         ))
 
     output.print_results(entries)
 
-    base_name = output.derive_output_name(file_name)
-    os.makedirs(args.output_dir, exist_ok=True)
+    # base_name / output_dir were established above for the matches artifact.
     txt_path = os.path.join(args.output_dir, f"{base_name}_songs.txt")
     csv_path = os.path.join(args.output_dir, f"{base_name}_songs.csv")
 
@@ -565,6 +676,191 @@ def _cmd_rebuild(handles: list[str], output_dir: str, log_dir: str, public: bool
         print(f"  {h:<20} {n_csv:>3} CSV(s)  {n_uri:>4} unique URI(s)  +{added:>4} added  {purl}")
 
 
+def _cmd_backfill(handles: list[str], output_dir: str, log_dir: str, public: bool) -> None:
+    """Retry Spotify resolution for unresolved (/search/ fallback) rows in existing
+    CSVs, rewrite them in place, and dedup-append newly-resolved tracks to each
+    handle's playlist. The recovery path for runs that hit the Spotify daily quota."""
+    import csv
+    import glob
+
+    spotify_client.reset_quota_flag()
+    # Skip negatives: a prior /search/ fallback row is exactly what we're here
+    # to retry, so it must not be cached as a permanent miss.
+    primed = spotify_client.prime_search_cache(output_dir, include_negatives=False)
+    if primed:
+        print(f"Spotify cache: {primed} prior positive lookup(s) loaded\n")
+
+    # With handles → <handle>*_songs.csv each; without → every *_songs.csv (one group).
+    targets: list[tuple[str | None, list[str]]] = []
+    if handles:
+        for raw in handles:
+            handle = raw.lstrip("@").strip()
+            if not streamer_log.is_valid_handle(handle):
+                print(f"ERROR: invalid handle {raw!r} — letters, digits, '_' and '-' only.\n")
+                continue
+            pattern = os.path.join(output_dir, f"{handle}*_songs.csv")
+            targets.append((handle, sorted(glob.glob(pattern))))
+    else:
+        targets.append((None, sorted(glob.glob(os.path.join(output_dir, "*_songs.csv")))))
+
+    summary: list[tuple[str, int, int, str]] = []
+    for handle, csv_paths in targets:
+        label = handle or "(all CSVs)"
+        print(f"{'='*60}")
+        print(f"# {label}")
+        print(f"{'='*60}")
+        if not csv_paths:
+            print("(no CSVs match)\n")
+            summary.append((label, 0, 0, "(no CSVs)"))
+            continue
+
+        resolved_total = 0
+        still_unresolved = 0
+        newly_resolved_uris: list[str] = []
+
+        for path in csv_paths:
+            with open(path, "r", encoding="utf-8", newline="") as f:
+                reader = csv.DictReader(f)
+                fieldnames = reader.fieldnames
+                rows = list(reader)
+            if not fieldnames:
+                continue
+
+            changed = 0
+            for row in rows:
+                spotify = (row.get("Spotify") or "").strip()
+                if "/search/" not in spotify:
+                    continue  # already a real /track/ link, or empty
+                title = (row.get("Title") or "").lstrip("'").strip()
+                artist = (row.get("Artist") or "").lstrip("'").strip()
+                isrc = (row.get("ISRC") or "").lstrip("'").strip()
+                if not title or not artist or spotify_client.quota_exhausted():
+                    still_unresolved += 1
+                    continue
+                url, uri = spotify_client.search_track(title, artist, isrc)
+                if url:
+                    row["Spotify"] = url
+                    changed += 1
+                    resolved_total += 1
+                    if uri:
+                        newly_resolved_uris.append(uri)
+                else:
+                    still_unresolved += 1
+
+            if changed:
+                # Rewrite preserving the original column schema (old CSVs lack
+                # ISRC). Write-to-temp + atomic replace so a crash mid-write
+                # can't truncate/lose the existing CSV.
+                tmp_path = path + ".tmp"
+                with open(tmp_path, "w", encoding="utf-8", newline="") as f:
+                    writer = csv.DictWriter(f, fieldnames=fieldnames)
+                    writer.writeheader()
+                    writer.writerows(rows)
+                os.replace(tmp_path, path)
+            print(f"  {os.path.basename(path):<55} +{changed} resolved")
+
+        playlist_url = "(no playlist update)"
+        if handle and newly_resolved_uris:
+            spotify_client.ensure_oauth_token_fresh()
+            try:
+                playlist_id, playlist_url = spotify_client.find_or_create_playlist(
+                    handle, public=public,
+                    description=spotify_client.build_playlist_description(),
+                )
+                added = spotify_client.add_tracks_dedup(playlist_id, newly_resolved_uris)
+                print(f"\nPlaylist: \"{handle}\" — {playlist_url}  (+{added} new track(s))")
+                log = streamer_log.load(log_dir, handle)
+                streamer_log.set_playlist(log, playlist_id, playlist_url)
+                streamer_log.save(log_dir, handle, log)
+            except Exception as exc:
+                print(f"ERROR updating playlist \"{handle}\": {exc}")
+                playlist_url = "(playlist update failed)"
+
+        summary.append((label, resolved_total, still_unresolved, playlist_url))
+
+        if spotify_client.quota_exhausted():
+            print("\n⚠ Spotify quota hit during backfill — remaining unresolved rows "
+                  "kept for a future --backfill-spotify run.")
+            break
+
+    print(f"{'='*60}")
+    print("Backfill summary")
+    print(f"{'='*60}")
+    for label, res, rem, purl in summary:
+        print(f"  {label:<20} +{res:>4} resolved, {rem:>4} still unresolved  {purl}")
+
+
+def _cmd_from_youtube(
+    url: str,
+    output_dir: str,
+    playlist_name: str | None,
+    public: bool,
+) -> None:
+    """Enumerate a YouTube playlist, resolve each video to a Spotify track,
+    and dedup-append the matches into a Spotify playlist. No audio scanning."""
+    print(f"Reading YouTube playlist: {url}\n")
+    try:
+        pl_title, yt_tracks = youtube_playlist.fetch_playlist(url)
+    except youtube_playlist.YouTubeError as exc:
+        print(f"ERROR: {exc}")
+        sys.exit(1)
+
+    print(f"Playlist    : {pl_title}")
+    print(f"Videos      : {len(yt_tracks)} with usable titles")
+    if not yt_tracks:
+        print("Nothing to do — no parseable video titles.")
+        return
+
+    print(f"\nLooking up {len(yt_tracks)} track(s) on Spotify...")
+    entries: list[output.SongEntry] = []
+    found = 0
+    for i, t in enumerate(yt_tracks):
+        spot_url, spot_uri = spotify_client.search_track(t.title, t.artist)
+        if spot_url:
+            found += 1
+        print(f"  [{i+1}/{len(yt_tracks)}] {t.artist} — {t.title}: "
+              f"{'found' if spot_url else 'not found'}")
+        entries.append(output.SongEntry(
+            timestamp=i,  # playlist position — preserves ordering in TXT/CSV
+            title=t.title,
+            artist=t.artist,
+            spotify_url=spot_url,
+            spotify_uri=spot_uri,
+            youtube_url=output.make_youtube_url(t.title, t.artist),
+        ))
+
+    base_name = output.derive_output_name(pl_title)
+    os.makedirs(output_dir, exist_ok=True)
+    txt_path = os.path.join(output_dir, f"{base_name}_songs.txt")
+    csv_path = os.path.join(output_dir, f"{base_name}_songs.csv")
+    output.write_txt(entries, txt_path, f"YouTube playlist: {pl_title}")
+    output.write_csv(entries, csv_path)
+    print(f"\n{found}/{len(yt_tracks)} matched on Spotify.")
+    print(f"Output written to:\n  {txt_path}\n  {csv_path}")
+
+    uris = [e.spotify_uri for e in entries if e.spotify_uri]
+    if not uris:
+        print("\nNo Spotify matches — playlist not created.")
+        return
+
+    name = playlist_name or pl_title
+    spotify_client.ensure_oauth_token_fresh()
+    try:
+        playlist_id, playlist_url = spotify_client.find_or_create_playlist(
+            name,
+            public=public,
+            description=spotify_client.build_playlist_description(),
+        )
+        added = spotify_client.add_tracks_dedup(playlist_id, uris)
+    except Exception as exc:
+        print(f"\nERROR creating/updating playlist: {exc}")
+        sys.exit(1)
+
+    print(f"\nPlaylist: \"{name}\" — {playlist_url}")
+    print(f"Added {added} new track(s) "
+          f"({len(uris) - added} already present).")
+
+
 def _cmd_show_streamer(log_dir: str, handle: str) -> None:
     handle = handle.lstrip("@").strip()
     if not streamer_log.is_valid_handle(handle):
@@ -661,6 +957,10 @@ async def run_pipeline(args: argparse.Namespace) -> None:
         print(f"Source name : {source_name}")
         await process_vod(resolved_url, source_name, file_name, args, create_playlist=True)
 
+    # Close the shared Shazam aiohttp session so non-streamer multi-VOD runs
+    # don't leak connectors / emit "Unclosed client session" on exit.
+    await recognizer.close()
+
 
 def main() -> None:
     args = parse_args()
@@ -673,7 +973,21 @@ def main() -> None:
     if args.rebuild:
         _cmd_rebuild(args.rebuild, args.output_dir, args.log_dir, public=not args.private_playlist)
         return
+    if args.backfill_spotify is not None:
+        _cmd_backfill(args.backfill_spotify, args.output_dir, args.log_dir,
+                      public=not args.private_playlist)
+        return
+    if args.from_youtube:
+        _cmd_from_youtube(
+            args.from_youtube, args.output_dir, args.playlist_name,
+            public=not args.private_playlist,
+        )
+        return
     check_deps()
+    if spotify_client.credentials_available():
+        primed = spotify_client.prime_search_cache(args.output_dir)
+        if primed:
+            print(f"Spotify cache: {primed} prior lookup(s) loaded from {args.output_dir}")
     asyncio.run(run_pipeline(args))
 
 

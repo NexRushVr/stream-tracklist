@@ -55,6 +55,7 @@ class RecognitionResult:
     artist: str
     timestamp: int
     shazam_track_id: str
+    isrc: str = ""  # International Standard Recording Code, when Shazam provides it
 
 
 async def recognize_clip(clip_path: str, timestamp: int) -> RecognitionResult | None:
@@ -79,6 +80,7 @@ async def recognize_clip(clip_path: str, timestamp: int) -> RecognitionResult | 
     title = track.get("title", "").strip()
     artist = track.get("subtitle", "").strip()
     track_id = str(track.get("key", ""))
+    isrc = str(track.get("isrc", "") or "").strip()
 
     if not title or not artist:
         return None
@@ -88,6 +90,7 @@ async def recognize_clip(clip_path: str, timestamp: int) -> RecognitionResult | 
         artist=artist,
         timestamp=timestamp,
         shazam_track_id=track_id,
+        isrc=isrc,
     )
 
 

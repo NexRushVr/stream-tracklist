@@ -2,7 +2,12 @@
 logs/
 *_songs.csv
 *_songs.txt
+*_matches.jsonl
 *.log
+
+# Local scheduler artifacts (the *.example.bat versions are committed)
+scheduled_daily_scan.bat
+daily_streamers.local.txt
 
 # Local user config + scheduler script (the *.example.* version is committed)
 .env
@@ -10,6 +15,10 @@ logs/
 .spotify_token_cache
 scheduled_weekly_scan.bat
 scheduled_scan.log
+
+# Stray local media / test clips (the tool processes external files, not in-repo)
+test_clip.mp3
+*.mp4
 
 # Python
 __pycache__/

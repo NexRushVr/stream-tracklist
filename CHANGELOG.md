@@ -4,6 +4,73 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Durable, incremental recognition artifact + resume.** Each VOD scan now
+  writes a `<name>_matches.jsonl` as every slot completes — *before* any Spotify
+  call. A crash, Ctrl-C, or Spotify quota stall mid-scan no longer throws away
+  hours of recognition work. On a re-run, an interrupted scan resumes from the
+  last sampled timestamp, and a completed scan re-resolves from the artifact
+  without re-fingerprinting any audio. New `src/matches.py` (append/read/
+  done-marker, tolerant of a truncated final line) with unit tests.
+- `--fresh` — ignore an existing `_matches.jsonl` and rescan from the start
+  (default is to resume/re-resolve).
+- `--streamers-file PATH` — read streamer handles from a file (one per line,
+  `#` comments and blanks ignored, `kick:` prefix supported). Merged with any
+  `--streamers`, and also scopes `--backfill-spotify`. For a curated daily-run
+  list. Ships with `daily_streamers.txt` (a vetted VRChat-DJ + music list) and
+  `scheduled_daily_scan.example.bat`.
+- **Spotify search cache** — at startup the existing `*_songs.csv` files in
+  `--output-dir` are read into an in-memory `(title, artist) → result` cache.
+  Tracks a DJ replays across sets cost zero Spotify calls on re-runs. Primed
+  positives (real `/track/` links) and negatives (prior `/search/` fallbacks)
+  both load; negatives can be skipped (see `--backfill-spotify`).
+- **ISRC capture + exact lookup** — Shazam's `track.isrc` is now captured into
+  `RecognitionResult`, written as a new `ISRC` CSV column, and used as the
+  first Spotify query (`isrc:<code>`). Deterministic resolution that catches
+  remixes/bootlegs fuzzy `track:/artist:` search misses, and removes the
+  second broadened call on a hit.
+- `--backfill-spotify [HANDLE ...]` — recovery path that retries Spotify
+  resolution for unresolved (`/search/` fallback) rows in existing CSVs,
+  rewrites them in place (using the `ISRC` column when present), and
+  dedup-appends newly-resolved tracks to each handle's playlist. No audio
+  scanning. Pass handles to scope it, or no args to backfill every CSV in
+  `--output-dir`. The intended follow-up after a run that hit the daily quota.
+- `--from-youtube URL` — convert a YouTube playlist into a Spotify playlist
+  with no audio scanning. yt-dlp enumerates the playlist flat (no media
+  download); each video title is parsed into `(artist, title)` and matches
+  are dedup-appended into a playlist named after the YouTube playlist (or
+  `--playlist-name`). Handles `"X - Topic"` YouTube Music channels and
+  `Artist - Title (Official Video)` titles; preserves track-distinguishing
+  tags (`Remix`, `feat.`, `Acoustic`, `Live`) for the Spotify search.
+- `src/youtube_playlist.py` with a pure, unit-tested title parser and a
+  yt-dlp CLI wrapper (invoked as an external tool like ffmpeg, so the
+  module imports cleanly without yt-dlp installed).
+- 30 unit tests for URL gating, the title parser, and `fetch_playlist`
+  (yt-dlp mocked — suite stays offline).
+
+### Changed
+- `requirements.txt` adds `yt-dlp` (only used by `--from-youtube`).
+- **Spotify 429s degrade instead of hanging.** The search client is now built
+  with `retries=0` so spotipy no longer sleeps on a 429 `Retry-After` — a daily
+  quota limit's `Retry-After` can be ~19h, which previously hung an entire
+  batch silently. On a 429 the run sets a process-wide flag, prints a notice,
+  skips all further lookups (unresolved tracks fall back to a `/search/` URL),
+  and finishes; `--backfill-spotify` fills them in after the quota resets.
+- CSV output gains an `ISRC` column (sixth). Older five-column CSVs are still
+  read fine; `--backfill-spotify` preserves whatever schema each file already
+  has when rewriting.
+
+### Fixed
+- Slot recognitions obtained on a retry after the first extraction attempt
+  errored were silently discarded: `slot_failed` was set on attempt 0 and never
+  cleared, so a slot that recovered on a later offset still hit the `[skip]`
+  path. Slots are now treated as failed only when *no* attempt produced a clip.
+- The shared Shazam aiohttp session is now closed at the end of non-streamer
+  multi-VOD runs too (previously only `--streamer-mode` closed it), silencing
+  "Unclosed client session" / leaked-connector warnings.
+
 ## [1.0.0] - 2026-05-13
 
 Initial public release. A local CLI that Shazams audio clips out of MP4 files,

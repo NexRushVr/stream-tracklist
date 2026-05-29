@@ -107,8 +107,12 @@ python stream_songs.py --rebuild eevi
 | `--playlist-name TEXT` | source name | Override the playlist name (single-VOD mode only) |
 | `--streamer-mode` | off | Per-streamer log + rolling playlist named after the handle |
 | `--streamers HANDLE [...]` | — | Multi-streamer mode (implies `--all`). Prefix with `kick:` for Kick. |
+| `--streamers-file PATH` | — | Read handles from a file (one per line, `#` comments OK); merges with `--streamers`, scopes `--backfill-spotify` |
 | `--rescan` | off | In streamer mode, re-process VODs already in the log |
+| `--fresh` | off | Ignore an existing `_matches.jsonl` and rescan from scratch (default: resume/re-resolve) |
 | `--rebuild HANDLE [...]` | — | Rebuild playlist(s) from existing CSV files; no audio scanning |
+| `--backfill-spotify [HANDLE ...]` | — | Retry Spotify resolution for unresolved (`/search/`) CSV rows after a quota reset; rewrites CSVs in place + updates playlists. No args = every CSV in `--output-dir` |
+| `--from-youtube URL` | — | Convert a YouTube playlist into a Spotify playlist; no audio scanning (needs yt-dlp) |
 | `--log-dir PATH` | `logs` | Where per-streamer JSON logs are kept |
 | `--list-streamers` | — | List streamers with logs and exit |
 | `--show-streamer HANDLE` | — | Print the VOD log for a streamer and exit |
@@ -189,6 +193,46 @@ python stream_songs.py --rebuild eevi abehamm
 
 For each handle this globs `<output-dir>/<handle>*_songs.csv`, harvests Spotify URLs, dedupes, and appends to a playlist named after the handle. Useful as one-shot recovery if a playlist ended up empty; the regular `--streamer-mode` flow stays the source of truth going forward.
 
+### Recover from a Spotify daily-quota limit
+
+Spotify's Web API has an undocumented daily cap on search calls. A large batch can exhaust it mid-run — when that happens the scan no longer hangs: it finishes, and any tracks it couldn't resolve are written with a `/search/` fallback URL (the recognitions and the new `ISRC` column are still saved). Once the quota window resets (next day), fill them in without re-scanning any audio:
+
+```bash
+python stream_songs.py --backfill-spotify moonbuvr zayi   # scope to handles
+python stream_songs.py --backfill-spotify                 # or every CSV in --output-dir
+```
+
+This retries only the unresolved rows — preferring an exact `isrc:` lookup when the `ISRC` column is present — rewrites the CSVs in place, and dedup-appends the newly-resolved tracks to each handle's playlist. The startup search cache (primed from your existing CSVs) means tracks already resolved in a prior run cost no API calls.
+
+### Resuming an interrupted scan
+
+Every VOD scan streams its recognitions to `<output-dir>/<name>_matches.jsonl` as each slot completes — before any Spotify lookup. So a crash, `Ctrl-C`, or quota stall part-way through a multi-hour VOD never loses the work already done. Just run the same command again:
+
+- An **interrupted** scan resumes from the last sampled timestamp ("Resuming: recovered N match(es), continuing from HH:MM:SS").
+- A **completed** scan re-resolves from the artifact and skips audio entirely ("Found a complete matches artifact — re-resolving without re-scanning audio").
+- Pass `--fresh` to ignore the artifact and rescan from zero.
+
+In `--streamer-mode` this composes with the per-streamer log: finished VODs are skipped outright, and a VOD interrupted mid-scan resumes on the next run instead of restarting.
+
+### Daily runs over a curated streamer list
+
+Keep a list of handles in a file and scan only their new VODs each day:
+
+```bash
+python stream_songs.py --streamer-mode --streamers-file daily_streamers.txt
+python stream_songs.py --backfill-spotify --streamers-file daily_streamers.txt   # next-day cleanup
+```
+
+[daily_streamers.txt](daily_streamers.txt) ships as a starting point (a vetted list of active VRChat-DJ and music streamers, one handle per line, `#` comments allowed). [scheduled_daily_scan.example.bat](scheduled_daily_scan.example.bat) wires both commands for Windows Task Scheduler. Because `--streamer-mode` skips already-logged VODs, a daily run only scans what's new — usually quick.
+
+### Convert a YouTube playlist to Spotify
+
+```bash
+python stream_songs.py --from-youtube "https://youtube.com/playlist?list=PLeczTdFh8vGGSMdZddA8mxFLsTUfbZmUz"
+```
+
+No audio scanning — [yt-dlp](https://github.com/yt-dlp/yt-dlp) enumerates the playlist (flat, it never downloads media), each video title is parsed into `(artist, title)`, and matches are dedup-appended into a Spotify playlist named after the YouTube playlist (override with `--playlist-name`). Re-running is idempotent: already-present tracks are skipped. `"X - Topic"` (YouTube Music) channels and `Artist - Title (Official Video)` titles are both handled; version info that changes the track (`Remix`, `feat.`, `Acoustic`, `Live`) is preserved for the search. Install yt-dlp with `pip install yt-dlp`.
+
 ### Reading the logs
 
 ```bash
@@ -200,7 +244,7 @@ Raw logs are plain JSON at `logs/<handle>.json` if you'd rather `jq` them.
 
 ## Spotify Setup
 
-Only needed for `--create-playlist`, `--streamer-mode`, `--rebuild`, and direct Spotify track URLs in the CSV. Skip entirely otherwise.
+Only needed for `--create-playlist`, `--streamer-mode`, `--rebuild`, `--from-youtube`, and direct Spotify track URLs in the CSV. Skip entirely otherwise.
 
 1. Go to [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) → **Create app**. Name + description can be anything; website can be blank.
 2. **Set the redirect URI to exactly `http://127.0.0.1:8888/callback`** — click **Add**, then **Save** at the bottom. **`localhost` will not work** — Spotify rejects it as of 2025; you must use `127.0.0.1`.

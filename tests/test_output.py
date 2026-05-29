@@ -79,7 +79,7 @@ def test_write_csv_round_trip(tmp_path):
     with open(path, encoding="utf-8") as f:
         rows = list(csv.reader(f))
 
-    assert rows[0] == ["Timestamp", "Title", "Artist", "Spotify", "YouTube"]
+    assert rows[0] == ["Timestamp", "Title", "Artist", "Spotify", "YouTube", "ISRC"]
     assert rows[1][:3] == ["00:01:00", "Track A", "Artist A"]
     assert rows[1][3] == "https://open.spotify.com/track/aaa"
     # Track B has no spotify_url — should fall back to a search URL

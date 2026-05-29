@@ -12,6 +12,7 @@ class SongEntry:
     spotify_url: str | None       # direct track link, or None if not found
     spotify_uri: str | None       # spotify:track:... URI for playlist creation
     youtube_url: str
+    isrc: str = ""                # from Shazam; enables exact Spotify isrc: lookup on backfill
 
 
 def make_spotify_search_url(title: str, artist: str) -> str:
@@ -76,7 +77,7 @@ def _safe_csv_cell(value: str) -> str:
 def write_csv(entries: list[SongEntry], filepath: str) -> None:
     with open(filepath, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["Timestamp", "Title", "Artist", "Spotify", "YouTube"])
+        writer.writerow(["Timestamp", "Title", "Artist", "Spotify", "YouTube", "ISRC"])
         for e in entries:
             spotify = e.spotify_url or make_spotify_search_url(e.title, e.artist)
             writer.writerow([
@@ -85,6 +86,7 @@ def write_csv(entries: list[SongEntry], filepath: str) -> None:
                 _safe_csv_cell(e.artist),
                 spotify,
                 e.youtube_url,
+                _safe_csv_cell(e.isrc),
             ])
 
 

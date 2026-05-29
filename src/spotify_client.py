@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import csv
+import glob
 import os
+import re
 import time
 
 try:
@@ -46,7 +49,13 @@ def _get_search_client() -> spotipy.Spotify:
             client_id=os.environ["SPOTIFY_CLIENT_ID"],
             client_secret=os.environ["SPOTIFY_CLIENT_SECRET"],
         )
-        _search_client = spotipy.Spotify(auth_manager=auth)
+        # retries=0 / status_retries=0 stops spotipy from honoring a 429
+        # Retry-After by sleeping *inside* the call — Spotify's daily-quota
+        # Retry-After can be ~19h, which would silently hang an entire batch.
+        # We'd rather get the exception immediately and degrade gracefully.
+        _search_client = spotipy.Spotify(
+            auth_manager=auth, retries=0, status_retries=0, backoff_factor=0
+        )
     return _search_client
 
 
@@ -66,28 +75,124 @@ def _get_oauth_client() -> spotipy.Spotify:
     return _oauth_client
 
 
-def search_track(title: str, artist: str) -> tuple[str | None, str | None]:
-    """Return (spotify_track_url, spotify_track_uri) or (None, None) on failure."""
+# Cache of prior (title, artist) -> (url, uri) lookups, primed from existing
+# CSVs at startup. Burns a few thousand redundant Spotify search calls per run
+# when DJs replay tracks across sets — which is what blew the daily quota.
+_search_cache: dict[tuple[str, str], tuple[str | None, str | None]] = {}
+_search_cache_loaded = False
+
+_TRACK_URL_RE = re.compile(r"^https://open\.spotify\.com/track/([A-Za-z0-9]{22})$")
+
+
+def _cache_key(title: str, artist: str) -> tuple[str, str]:
+    return (title.strip().lower(), artist.strip().lower())
+
+
+def prime_search_cache(output_dir: str = ".", include_negatives: bool = True) -> int:
+    """Scan output_dir for *_songs.csv and populate the search cache. Real
+    track URLs become positive hits; search-fallback URLs become negatives
+    (unless include_negatives is False — backfill skips negatives so previously
+    unresolved rows can be retried). Idempotent. Returns total cache size."""
+    global _search_cache_loaded
+    if _search_cache_loaded:
+        return len(_search_cache)
+    pattern = os.path.join(output_dir, "*_songs.csv")
+    for path in glob.glob(pattern):
+        try:
+            with open(path, encoding="utf-8", newline="") as f:
+                for row in csv.DictReader(f):
+                    title = (row.get("Title") or "").lstrip("'")
+                    artist = (row.get("Artist") or "").lstrip("'")
+                    spotify = row.get("Spotify") or ""
+                    if not title or not artist:
+                        continue
+                    key = _cache_key(title, artist)
+                    if key in _search_cache:
+                        continue
+                    m = _TRACK_URL_RE.match(spotify)
+                    if m:
+                        _search_cache[key] = (spotify, f"spotify:track:{m.group(1)}")
+                    elif "/search/" in spotify and include_negatives:
+                        _search_cache[key] = (None, None)
+        except (OSError, csv.Error):
+            continue
+    _search_cache_loaded = True
+    return len(_search_cache)
+
+
+# Set once Spotify returns a 429 (rate/daily-quota limit). The rest of the run
+# then skips search entirely instead of issuing hundreds of doomed calls —
+# unresolved tracks fall back to a search URL and can be filled in later with
+# --backfill-spotify once the quota window resets.
+_quota_exhausted = False
+
+
+def quota_exhausted() -> bool:
+    return _quota_exhausted
+
+
+def reset_quota_flag() -> None:
+    """Clear the quota flag — used by tests and at the start of a backfill run."""
+    global _quota_exhausted
+    _quota_exhausted = False
+
+
+def _is_rate_limit(exc: Exception) -> bool:
+    status = getattr(exc, "http_status", None)
+    if status == 429:
+        return True
+    text = str(exc).lower()
+    return "429" in text or "rate/request limit" in text or "too many requests" in text
+
+
+def search_track(
+    title: str, artist: str, isrc: str = ""
+) -> tuple[str | None, str | None]:
+    """Return (spotify_track_url, spotify_track_uri) or (None, None) on failure.
+
+    When `isrc` is supplied (from Shazam), an exact `isrc:` query is tried first —
+    it's deterministic and resolves remixes/bootlegs that fuzzy title/artist
+    search misses. Falls back to fuzzy queries otherwise.
+    """
+    global _quota_exhausted
+    key = _cache_key(title, artist)
+    if key in _search_cache:
+        return _search_cache[key]
+    if _quota_exhausted:
+        return None, None
+
     sp = _get_search_client()
-    try:
-        results = sp.search(q=f"track:{title} artist:{artist}", type="track", limit=1)
-        items = results["tracks"]["items"]
-        if items:
-            track = items[0]
-            return track["external_urls"]["spotify"], track["uri"]
-    except Exception:
-        pass
 
-    # Broaden search if exact query fails
-    try:
-        results = sp.search(q=f"{artist} {title}", type="track", limit=1)
-        items = results["tracks"]["items"]
-        if items:
-            track = items[0]
-            return track["external_urls"]["spotify"], track["uri"]
-    except Exception:
-        pass
+    queries = []
+    if isrc:
+        queries.append(f"isrc:{isrc}")
+    queries.append(f"track:{title} artist:{artist}")
+    queries.append(f"{artist} {title}")
 
+    # Distinguish "Spotify answered, no items" (cache as a permanent negative)
+    # from "the call errored" (transient — never poison the cache).
+    confirmed_no_match = False
+    for q in queries:
+        try:
+            results = sp.search(q=q, type="track", limit=1)
+            items = results["tracks"]["items"]
+            if items:
+                track = items[0]
+                result = (track["external_urls"]["spotify"], track["uri"])
+                _search_cache[key] = result
+                return result
+            confirmed_no_match = True
+        except Exception as exc:
+            if _is_rate_limit(exc):
+                if not _quota_exhausted:
+                    print("  ⚠ Spotify rate/quota limit hit — skipping further "
+                          "lookups this run (re-run with --backfill-spotify later)")
+                _quota_exhausted = True
+                return None, None
+            continue
+
+    if confirmed_no_match:
+        _search_cache[key] = (None, None)
     return None, None
 
 
