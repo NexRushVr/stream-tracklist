@@ -42,9 +42,11 @@ _oauth_client: spotipy.Spotify | None = None
 
 
 def _get_search_client() -> spotipy.Spotify:
-    _require_spotipy()
     global _search_client
     if _search_client is None:
+        # Only the *construction* path needs the library; an already-set client
+        # (real or test-injected) is returned without requiring spotipy.
+        _require_spotipy()
         auth = SpotifyClientCredentials(
             client_id=os.environ["SPOTIFY_CLIENT_ID"],
             client_secret=os.environ["SPOTIFY_CLIENT_SECRET"],
@@ -60,9 +62,9 @@ def _get_search_client() -> spotipy.Spotify:
 
 
 def _get_oauth_client() -> spotipy.Spotify:
-    _require_spotipy()
     global _oauth_client
     if _oauth_client is None:
+        _require_spotipy()
         auth = SpotifyOAuth(
             client_id=os.environ["SPOTIFY_CLIENT_ID"],
             client_secret=os.environ["SPOTIFY_CLIENT_SECRET"],

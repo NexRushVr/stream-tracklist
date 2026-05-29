@@ -9,6 +9,9 @@ logs/
 scheduled_daily_scan.bat
 daily_streamers.local.txt
 
+# Local-only notes (strategy / monetization) — never published
+*.local.md
+
 # Local user config + scheduler script (the *.example.* version is committed)
 .env
 .cache
