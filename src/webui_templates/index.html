@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>stream-tracklist {{ version }}</title>
+<style>
+  :root {
+    --bg: #14171c;
+    --panel: #1c2027;
+    --panel-2: #232831;
+    --border: #2c3340;
+    --fg: #dee3ec;
+    --fg-dim: #8b95a6;
+    --accent: #6ea8ff;
+    --accent-strong: #4d8bf0;
+    --ok: #4ade80;
+    --warn: #facc15;
+    --err: #f87171;
+    --spot: #1db954;
+    --radius: 8px;
+    --gap: 12px;
+    font-size: 14px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.4;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 18px; background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: 0.5px; }
+  header .ver { color: var(--fg-dim); font-size: 12px; }
+  main {
+    display: grid;
+    grid-template-columns: 1.6fr 1fr;
+    gap: var(--gap);
+    padding: var(--gap);
+    max-width: 1400px; margin: 0 auto;
+  }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  section {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 14px;
+  }
+  section h2 {
+    margin: 0 0 10px; font-size: 13px; text-transform: uppercase;
+    letter-spacing: 0.8px; color: var(--fg-dim); font-weight: 600;
+  }
+  .triggers { display: grid; gap: var(--gap); }
+  .trigger { background: var(--panel-2); border-radius: var(--radius); padding: 12px; }
+  .trigger h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+  .trigger .hint { color: var(--fg-dim); font-size: 12px; margin-bottom: 8px; }
+  form .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  form .row > * { flex: 1; min-width: 0; }
+  label { display: block; color: var(--fg-dim); font-size: 12px; margin: 6px 0 3px; }
+  input[type=text], input[type=url] {
+    width: 100%; padding: 7px 10px; background: var(--bg); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 6px; font: inherit;
+  }
+  input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+  button {
+    padding: 7px 14px; background: var(--accent-strong); color: white;
+    border: 0; border-radius: 6px; font: inherit; font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { background: var(--accent); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .check { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-dim); }
+
+  .jobs { display: grid; gap: var(--gap); }
+  .job {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 12px;
+  }
+  .job .head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 8px; flex-wrap: wrap;
+  }
+  .job .head .label { font-weight: 600; font-size: 13px; }
+  .job .head .meta { color: var(--fg-dim); font-size: 12px; }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .badge.running { background: rgba(110, 168, 255, 0.18); color: var(--accent); }
+  .badge.done    { background: rgba(74, 222, 128, 0.18); color: var(--ok); }
+  .badge.error   { background: rgba(248, 113, 113, 0.18); color: var(--err); }
+  .badge.killed  { background: rgba(250, 204, 21, 0.18); color: var(--warn); }
+
+  .progress {
+    margin-top: 8px; height: 6px; background: var(--bg);
+    border-radius: 4px; overflow: hidden;
+  }
+  .progress > div { height: 100%; background: var(--accent-strong); transition: width 0.25s; }
+  .stats { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; color: var(--fg-dim); font-size: 12px; }
+  .stats b { color: var(--fg); font-weight: 600; }
+  .matches { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; max-height: 160px; overflow-y: auto; }
+  .matches .m { font-size: 12px; padding: 2px 0; border-bottom: 1px solid var(--border); }
+  .matches .m .t { color: var(--fg); }
+  .matches .m .a { color: var(--fg-dim); }
+  .errs { margin-top: 8px; font-size: 12px; color: var(--err); }
+  .errs .e { padding: 2px 0; }
+  .plink { display: inline-flex; align-items: center; gap: 6px; color: var(--spot); text-decoration: none; font-weight: 600; }
+  .plink:hover { text-decoration: underline; }
+  .killbtn {
+    padding: 2px 8px; font-size: 11px; background: transparent;
+    color: var(--fg-dim); border: 1px solid var(--border); border-radius: 4px;
+  }
+  .killbtn:hover { color: var(--err); border-color: var(--err); }
+
+  .streamers { display: grid; gap: 6px; }
+  .streamer-row {
+    background: var(--panel-2); padding: 8px 10px; border-radius: 6px;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 8px; flex-wrap: wrap;
+  }
+  .streamer-row .h { font-weight: 600; }
+  .streamer-row .d { color: var(--fg-dim); font-size: 12px; }
+  .empty { color: var(--fg-dim); font-size: 13px; font-style: italic; }
+  .error-msg { color: var(--err); font-size: 12px; margin-top: 6px; min-height: 1em; }
+  .log-tail {
+    margin-top: 8px; max-height: 140px; overflow-y: auto;
+    background: var(--bg); border-radius: 4px; padding: 6px 8px;
+    font-family: ui-monospace, Consolas, monospace; font-size: 11px;
+    color: var(--fg-dim);
+  }
+  .log-tail .line { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>stream-tracklist</h1>
+  <span class="ver">v{{ version }}</span>
+</header>
+
+<main>
+  <!-- ============ LEFT: triggers + active jobs ============ -->
+  <div>
+    <section>
+      <h2>Run a job</h2>
+      <div class="triggers">
+
+        <div class="trigger">
+          <h3>Streamer mode</h3>
+          <div class="hint">Per-streamer rolling playlist. Prefix Kick handles with <code>kick:</code>.</div>
+          <form id="form-streamer">
+            <label for="streamer-handles">Handles (space-separated)</label>
+            <div class="row">
+              <input id="streamer-handles" type="text" value="eevi kick:abehamm" autocomplete="off">
+              <button type="submit">Start scan</button>
+            </div>
+            <div class="row" style="margin-top: 6px;">
+              <label class="check"><input type="checkbox" id="streamer-fresh"> Fresh (force rescan, discard matches.jsonl)</label>
+              <label class="check"><input type="checkbox" id="streamer-rescan"> Rescan logged VODs</label>
+            </div>
+            <div class="error-msg" id="err-streamer"></div>
+          </form>
+        </div>
+
+        <div class="trigger">
+          <h3>YouTube playlist → Spotify</h3>
+          <div class="hint">No audio scan — reads titles via yt-dlp and resolves on Spotify.</div>
+          <form id="form-youtube">
+            <label for="yt-url">YouTube playlist URL</label>
+            <input id="yt-url" type="url" placeholder="https://youtube.com/playlist?list=…" autocomplete="off">
+            <label for="yt-name">Spotify playlist name (optional, defaults to YT title)</label>
+            <div class="row">
+              <input id="yt-name" type="text" autocomplete="off">
+              <button type="submit">Convert</button>
+            </div>
+            <div class="error-msg" id="err-youtube"></div>
+          </form>
+        </div>
+
+        <div class="trigger">
+          <h3>Backfill Spotify</h3>
+          <div class="hint">Retry unresolved Spotify lookups in your CSVs (ISRC-first). Use after a 429 quota stall. Leave empty to backfill every CSV.</div>
+          <form id="form-backfill">
+            <label for="bf-handles">Handles (space-separated, optional)</label>
+            <div class="row">
+              <input id="bf-handles" type="text" placeholder="eevi abehamm" autocomplete="off">
+              <button type="submit">Backfill</button>
+            </div>
+            <div class="error-msg" id="err-backfill"></div>
+          </form>
+        </div>
+
+        <div class="trigger">
+          <h3>Single source</h3>
+          <div class="hint">A local <code>.mp4</code>, an <code>.m3u8</code> URL, or a vodvod.top / kick.com channel URL.</div>
+          <form id="form-single">
+            <label for="single-src">Source</label>
+            <input id="single-src" type="text" autocomplete="off">
+            <div class="row" style="margin-top: 6px;">
+              <label class="check"><input type="checkbox" id="single-cp"> Create Spotify playlist</label>
+              <label class="check"><input type="checkbox" id="single-priv"> Private playlist</label>
+              <button type="submit">Run</button>
+            </div>
+            <div class="error-msg" id="err-single"></div>
+          </form>
+        </div>
+
+      </div>
+    </section>
+
+    <section style="margin-top: var(--gap);">
+      <h2>Jobs</h2>
+      <div id="jobs" class="jobs"></div>
+      <div id="jobs-empty" class="empty">No jobs yet — start one above.</div>
+    </section>
+  </div>
+
+  <!-- ============ RIGHT: streamer history ============ -->
+  <section>
+    <h2>Streamers</h2>
+    <div id="streamers" class="streamers"></div>
+    <div id="streamers-empty" class="empty">No streamer logs yet.</div>
+  </section>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const jobsEl = $('jobs');
+  const jobsEmpty = $('jobs-empty');
+  const streamersEl = $('streamers');
+  const streamersEmpty = $('streamers-empty');
+
+  // Job UI is keyed by id → its root <div class="job"> + live state cache.
+  const jobCards = new Map();   // id -> {root, eventSource, state}
+
+  function fmtTime(ts) {
+    const d = new Date(ts * 1000);
+    return d.toLocaleTimeString();
+  }
+
+  function ensureCard(meta) {
+    let card = jobCards.get(meta.id);
+    if (card) {
+      updateCard(card, meta);
+      return card;
+    }
+    const root = document.createElement('div');
+    root.className = 'job';
+    root.innerHTML = `
+      <div class="head">
+        <div>
+          <span class="label"></span>
+          <span class="badge"></span>
+        </div>
+        <div class="meta"></div>
+      </div>
+      <div class="vod" style="margin-top: 6px; font-size: 12px; color: var(--fg-dim);"></div>
+      <div class="progress"><div></div></div>
+      <div class="stats"></div>
+      <div class="playlist" style="margin-top: 6px;"></div>
+      <div class="matches"></div>
+      <div class="errs"></div>
+      <div class="log-tail" hidden></div>
+    `;
+    jobsEl.prepend(root);
+    card = { root, eventSource: null, state: { recentLog: [] } };
+    jobCards.set(meta.id, card);
+    updateCard(card, meta);
+    if (meta.status === 'running') subscribe(meta.id, card);
+    return card;
+  }
+
+  function updateCard(card, meta) {
+    const root = card.root;
+    root.querySelector('.label').textContent = meta.label;
+    const badge = root.querySelector('.badge');
+    badge.textContent = meta.status;
+    badge.className = 'badge ' + meta.status;
+    const metaEl = root.querySelector('.meta');
+    metaEl.innerHTML = `<span>started ${fmtTime(meta.started_at)}</span>`;
+    if (meta.status === 'running') {
+      const kill = document.createElement('button');
+      kill.className = 'killbtn';
+      kill.textContent = 'kill';
+      kill.onclick = () => fetch(`/api/jobs/${meta.id}/kill`, { method: 'POST' });
+      metaEl.appendChild(document.createTextNode(' · '));
+      metaEl.appendChild(kill);
+    } else if (meta.exit_code != null) {
+      metaEl.innerHTML += ` <span>· exit ${meta.exit_code}</span>`;
+    }
+    renderSummary(card, meta.summary || {});
+  }
+
+  function renderSummary(card, s) {
+    const root = card.root;
+    // VOD line
+    let vodLine = '';
+    if (s.current_streamer) vodLine += `<b style="color: var(--fg);">${esc(s.current_streamer)}</b>`;
+    if (s.current_vod) {
+      vodLine += `${vodLine ? ' · ' : ''}VOD ${s.current_vod.n}/${s.current_vod.total}: <span style="color: var(--fg);">${esc(s.current_vod.title)}</span>`;
+    }
+    if (s.current_duration) vodLine += ` · ${esc(s.current_duration)}`;
+    root.querySelector('.vod').innerHTML = vodLine;
+
+    // Progress
+    const sp = s.sample_progress || { n: 0, total: 0 };
+    const pct = sp.total ? Math.min(100, (sp.n / sp.total) * 100) : 0;
+    root.querySelector('.progress > div').style.width = pct + '%';
+
+    // Stats
+    const stats = [];
+    if (sp.total) stats.push(`samples <b>${sp.n}/${sp.total}</b>`);
+    if (s.matches_this_vod != null) stats.push(`matches this VOD <b>${s.matches_this_vod}</b>`);
+    if (s.total_tracks_added != null) stats.push(`added to playlist <b>${s.total_tracks_added}</b>`);
+    root.querySelector('.stats').innerHTML = stats.join(' · ');
+
+    // Playlist
+    const pl = root.querySelector('.playlist');
+    pl.innerHTML = s.playlist_url
+      ? `<a class="plink" href="${esc(s.playlist_url)}" target="_blank">▶ Spotify playlist</a>`
+      : '';
+
+    // Recent matches
+    const mEl = root.querySelector('.matches');
+    mEl.innerHTML = (s.last_matches || []).slice().reverse().map(m =>
+      `<div class="m"><span class="t">${esc(m.title || '')}</span> <span class="a">— ${esc(m.artist || '')}</span></div>`
+    ).join('');
+
+    // Errors
+    const eEl = root.querySelector('.errs');
+    eEl.innerHTML = (s.errors || []).slice(-3).map(e =>
+      `<div class="e">${esc(e)}</div>`
+    ).join('');
+  }
+
+  function pushLog(card, text) {
+    card.state.recentLog.push(text);
+    while (card.state.recentLog.length > 40) card.state.recentLog.shift();
+    const log = card.root.querySelector('.log-tail');
+    log.hidden = false;
+    log.innerHTML = card.state.recentLog.map(l => `<div class="line">${esc(l)}</div>`).join('');
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function subscribe(jobId, card) {
+    if (card.eventSource) card.eventSource.close();
+    const es = new EventSource(`/api/jobs/${jobId}/events`);
+    card.eventSource = es;
+    es.onmessage = (ev) => {
+      let evt;
+      try { evt = JSON.parse(ev.data); } catch { return; }
+      handleEvent(jobId, card, evt);
+    };
+    es.onerror = () => {
+      // Browser auto-retries; if the job's finished, refetch to settle status.
+      fetch(`/api/jobs/${jobId}`).then(r => r.json()).then(updateCardFull).catch(() => {});
+    };
+  }
+
+  function updateCardFull(meta) {
+    if (!meta || meta.error) return;
+    const card = jobCards.get(meta.id);
+    if (card) updateCard(card, meta);
+  }
+
+  function handleEvent(jobId, card, evt) {
+    // Mirror the server's summary updates so the UI stays live without
+    // re-fetching after every line.
+    const meta = { id: jobId, label: card.root.querySelector('.label').textContent,
+                   status: 'running', started_at: 0, summary: card._summary || {} };
+    applyEventToSummary(meta.summary, evt);
+    card._summary = meta.summary;
+    if (evt.kind === 'job_end') {
+      // Final refetch picks up the authoritative status/exit code.
+      fetch(`/api/jobs/${jobId}`).then(r => r.json()).then(updateCardFull);
+      if (card.eventSource) card.eventSource.close();
+      // Refresh history — streamer logs likely just updated.
+      loadStreamers();
+    } else {
+      renderSummary(card, meta.summary);
+    }
+    if (evt.kind === 'log' || evt.kind === 'error') {
+      pushLog(card, evt.text);
+    }
+  }
+
+  function applyEventToSummary(s, evt) {
+    switch (evt.kind) {
+      case 'streamer_start':
+        s.current_streamer = evt.handle; break;
+      case 'vod_start':
+        s.current_vod = { n: evt.n, total: evt.total, title: evt.title };
+        s.sample_progress = { n: 0, total: 0 };
+        s.matches_this_vod = 0;
+        break;
+      case 'sample_total':
+        (s.sample_progress = s.sample_progress || { n: 0, total: 0 }).total = evt.total;
+        break;
+      case 'sample':
+        s.sample_progress = s.sample_progress || { n: 0, total: 0 };
+        s.sample_progress.n = evt.n; s.sample_progress.total = evt.total;
+        if (evt.status === 'match') {
+          s.matches_this_vod = (s.matches_this_vod || 0) + 1;
+          (s.last_matches = s.last_matches || []).push({ title: evt.title || '', artist: evt.artist || '' });
+          if (s.last_matches.length > 12) s.last_matches.splice(0, s.last_matches.length - 12);
+        }
+        break;
+      case 'playlist':
+        s.playlist_url = evt.url; break;
+      case 'tracks_added':
+        s.last_tracks_added = evt.count;
+        s.total_tracks_added = (s.total_tracks_added || 0) + evt.count;
+        break;
+      case 'duration':
+        s.current_duration = evt.value; break;
+      case 'error':
+        (s.errors = s.errors || []).push(evt.text); break;
+    }
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, c =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  async function loadJobs() {
+    const jobs = await fetch('/api/jobs').then(r => r.json());
+    for (const meta of jobs) {
+      const card = jobCards.get(meta.id) || ensureCard(meta);
+      // Hydrate from full detail so summary is correct on first paint.
+      const detail = await fetch(`/api/jobs/${meta.id}`).then(r => r.json());
+      updateCard(card, detail);
+      card._summary = detail.summary || {};
+    }
+    jobsEmpty.hidden = jobs.length > 0;
+  }
+
+  async function loadStreamers() {
+    const list = await fetch('/api/streamers').then(r => r.json());
+    streamersEl.innerHTML = list.map(s => `
+      <div class="streamer-row">
+        <div>
+          <div class="h">${esc(s.handle)}</div>
+          <div class="d">${s.vod_count} VOD(s) · last ${s.last_processed_at || '—'}</div>
+        </div>
+        ${s.playlist_url ? `<a class="plink" href="${esc(s.playlist_url)}" target="_blank">▶ playlist</a>` : ''}
+      </div>
+    `).join('');
+    streamersEmpty.hidden = list.length > 0;
+  }
+
+  function bindForm(formId, errId, handler) {
+    $(formId).addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errEl = $(errId);
+      errEl.textContent = '';
+      const submitBtn = e.target.querySelector('button[type=submit]');
+      submitBtn.disabled = true;
+      try {
+        const meta = await handler();
+        if (meta && meta.error) {
+          errEl.textContent = meta.error;
+        } else if (meta) {
+          ensureCard(meta);
+          jobsEmpty.hidden = true;
+        }
+      } catch (err) {
+        errEl.textContent = String(err);
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  }
+
+  bindForm('form-streamer', 'err-streamer', async () => {
+    const handles = $('streamer-handles').value.trim();
+    const fresh = $('streamer-fresh').checked;
+    const rescan = $('streamer-rescan').checked;
+    return fetch('/api/run/streamer', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ handles, fresh, rescan })
+    }).then(r => r.json());
+  });
+
+  bindForm('form-backfill', 'err-backfill', async () => {
+    const handles = $('bf-handles').value.trim();
+    return fetch('/api/run/backfill', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ handles })
+    }).then(r => r.json());
+  });
+
+  bindForm('form-youtube', 'err-youtube', async () => {
+    const url = $('yt-url').value.trim();
+    const playlist_name = $('yt-name').value.trim();
+    return fetch('/api/run/youtube', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, playlist_name })
+    }).then(r => r.json());
+  });
+
+  bindForm('form-single', 'err-single', async () => {
+    const source = $('single-src').value.trim();
+    const create_playlist = $('single-cp').checked;
+    const private_playlist = $('single-priv').checked;
+    return fetch('/api/run/single', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source, create_playlist, private_playlist })
+    }).then(r => r.json());
+  });
+
+  loadJobs(); loadStreamers();
+  setInterval(loadStreamers, 30000);
+</script>
+</body>
+</html>

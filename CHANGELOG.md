@@ -7,6 +7,18 @@ versioning follows [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Local web UI** (`python stream_songs.py --serve`) — Flask backend +
+  single-page HTML, opens in a native window via pywebview when available
+  (falls back to a browser URL with `--no-window` or when pywebview isn't
+  installed). Forms to trigger streamer-mode (with `--fresh` / `--rescan`
+  checkboxes), YouTube→Spotify, single-source scans, and `--backfill-spotify`
+  without touching the CLI. Each job is a subprocess of the same CLI; its
+  stdout is parsed into structured events and streamed to the browser over
+  Server-Sent Events so you see sample progress, recent matches, the playlist
+  URL the moment it's created, and any errors live. Right-side panel lists
+  every streamer with a log + a link to their rolling Spotify playlist. New
+  `src/webui.py` (parser, job manager, routes, SSE), `webui_templates/index.html`
+  (vanilla JS, no build step), and a `stream-tracklist.example.bat` launcher.
 - **Durable, incremental recognition artifact + resume.** Each VOD scan now
   writes a `<name>_matches.jsonl` as every slot completes — *before* any Spotify
   call. A crash, Ctrl-C, or Spotify quota stall mid-scan no longer throws away

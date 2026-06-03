@@ -8,6 +8,7 @@ logs/
 # Local scheduler artifacts (the *.example.bat versions are committed)
 scheduled_daily_scan.bat
 daily_streamers.local.txt
+stream-tracklist.bat
 
 # Local-only notes (strategy / monetization) — never published
 *.local.md

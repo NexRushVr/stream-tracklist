@@ -78,6 +78,16 @@ python stream_songs.py [OPTIONS] SOURCE
 - A `vodvod.top` channel URL — auto-picks the latest VOD
 - A `kick.com/<handle>` URL — uses Kick's public videos API
 
+### Web UI (easiest)
+
+```bash
+python stream_songs.py --serve
+```
+
+![stream-tracklist web UI](docs/webui.png)
+
+Opens a native window (or a browser tab with `--no-window` / when pywebview isn't installed) with forms for streamer-mode, YouTube→Spotify, single-source scans, and Spotify backfill — plus a live job feed showing sample progress, recent matches, and the playlist URL the moment it's created. Each job is a normal subprocess of the CLI, so anything you can do here works the same from the terminal. On Windows you can double-click [stream-tracklist.example.bat](stream-tracklist.example.bat) (copy to `stream-tracklist.bat`, edit `PY` if your Python interpreter isn't first on PATH).
+
 ### Top 3 commands
 
 ```bash
@@ -119,6 +129,9 @@ python stream_songs.py --rebuild eevi
 | `--retries INT` | `4` | Extra offsets per slot on no-match |
 | `--verbose` | off | Print each match as it arrives |
 | `--dry-run` | off | Print sample timestamps then exit |
+| `--serve` | off | Launch the local web UI (pywebview window if installed, else browser) |
+| `--port INT` | `8731` | Port for `--serve` |
+| `--no-window` | off | With `--serve`, print the URL instead of opening a pywebview window |
 | `--version` | — | Print version and exit |
 
 </details>

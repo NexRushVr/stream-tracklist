@@ -1,6 +1,8 @@
 spotipy==2.26.0
 python-dotenv>=1.0.0
 yt-dlp>=2024.1.0  # only used by --from-youtube (invoked as a CLI, like ffmpeg)
+flask>=3.0.0      # --serve UI backend
+pywebview>=5.0    # --serve native window wrapper (optional — UI falls back to browser)
 shazamio==0.8.1
 shazamio-core==1.1.2
 aiohttp>=3.8.3,<4.0.0

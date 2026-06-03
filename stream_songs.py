@@ -58,6 +58,14 @@ def parse_args() -> argparse.Namespace:
                              "dedup-appends newly-resolved tracks to each handle's playlist. "
                              "No audio scanning. Pass handles to scope it (e.g. --backfill-spotify "
                              "moonbuvr zayi) or no args to backfill every CSV in --output-dir.")
+    parser.add_argument("--serve", action="store_true",
+                        help="Launch the local web UI (pywebview window if installed, "
+                             "otherwise browser). All flags after this are ignored.")
+    parser.add_argument("--port", type=int, default=8731,
+                        help="Port for --serve (default: 8731)")
+    parser.add_argument("--no-window", action="store_true",
+                        help="With --serve, don't open a pywebview window — print the "
+                             "URL and let you open it in any browser yourself.")
     parser.add_argument("--from-youtube", metavar="URL", default=None,
                         help="Convert a YouTube playlist into a Spotify playlist (no audio "
                              "scanning — reads video titles via yt-dlp, searches Spotify, "
@@ -119,6 +127,11 @@ def parse_args() -> argparse.Namespace:
     # Resolve --streamers-file once; it can scope both a scan (--streamers) and
     # a --backfill-spotify run. 'kick:'-prefixed handles are kept verbatim for
     # scanning but stripped for backfill (which works off local CSVs by handle).
+    # --serve only needs --port / --no-window / --log-dir / --output-dir;
+    # skip all other validation since the UI spawns fresh CLI subprocesses.
+    if args.serve:
+        return args
+
     file_handles: list[str] = []
     if args.streamers_file:
         try:
@@ -964,6 +977,13 @@ async def run_pipeline(args: argparse.Namespace) -> None:
 
 def main() -> None:
     args = parse_args()
+    if args.serve:
+        from src import webui
+        webui.serve(
+            port=args.port, open_window=not args.no_window,
+            log_dir=args.log_dir, output_dir=args.output_dir,
+        )
+        return
     if args.list_streamers:
         _cmd_list_streamers(args.log_dir)
         return
