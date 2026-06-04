@@ -17,7 +17,7 @@
 # (or just `--backfill-spotify`) to fill them in without re-scanning audio.
 
 # ── VRChat — proven high-yield (already tracked, hundreds of songs each) ──
-abehamm
+silimmy             # added 2026-06-04 — always run
 moonbuvr
 zayi
 eevi
@@ -40,3 +40,6 @@ crazymangovr        # wiggle / dance
 hard_music_tv       # category "DJs" — hardstyle / hardcore, near-daily
 hotbeatstv          # category "DJs" — clubs/festivals EDM, biggest DJ channel
 mogra               # Akihabara club (anison/EDM), near-daily DJ sets
+
+# ── Lower priority — processed last so a quota stall hits these first ──
+abehamm             # deprioritized 2026-06-04
