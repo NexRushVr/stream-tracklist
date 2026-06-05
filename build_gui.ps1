@@ -42,7 +42,9 @@ Write-Host "Building stream-tracklist.exe..." -ForegroundColor Cyan
     --onefile `
     --name stream-tracklist `
     --paths gui `
+    --icon "gui\icon.ico" `
     --add-data "gui\web;web" `
+    --add-data "gui\icon.ico;." `
     --collect-all webview `
     --collect-all clr_loader `
     --exclude-module pytest `
