@@ -37,6 +37,22 @@ def test_parse_args_accepts_single_source(monkeypatch):
     assert not args.create_playlist
 
 
+def test_output_dir_defaults_to_output_subdir(monkeypatch):
+    """The default landed in `output/` rather than the project root so
+    per-VOD CSV/TXT/JSONL files don't spam the working tree. See
+    migrate_output.py for the one-shot migration of pre-existing files."""
+    _no_spotify(monkeypatch)
+    args = _run("https://example.com/foo.m3u8", monkeypatch=monkeypatch)
+    assert args.output_dir == "output"
+
+
+def test_output_dir_override_still_works(monkeypatch, tmp_path):
+    _no_spotify(monkeypatch)
+    args = _run("--output-dir", str(tmp_path), "https://example.com/foo.m3u8",
+                monkeypatch=monkeypatch)
+    assert args.output_dir == str(tmp_path)
+
+
 def test_parse_args_streamers_implies_all(monkeypatch):
     # streamer-mode requires Spotify creds.
     monkeypatch.setenv("SPOTIFY_CLIENT_ID", "x")

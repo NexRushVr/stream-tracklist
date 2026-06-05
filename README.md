@@ -108,7 +108,7 @@ python stream_songs.py --rebuild eevi
 |---|---|---|
 | `--interval INT` | `120` | Seconds between audio samples |
 | `--clip-duration INT` | `20` | Length of each audio clip in seconds |
-| `--output-dir PATH` | `.` | Directory for output files |
+| `--output-dir PATH` | `output` | Directory for TXT / CSV / `*_matches.jsonl` files (created on demand) |
 | `--output-name TEXT` | derived | Base filename for TXT/CSV output |
 | `--max-duration INT` | `86400` | Fallback cap when duration can't be probed |
 | `--create-playlist` | off | Create a Spotify playlist from identified tracks |

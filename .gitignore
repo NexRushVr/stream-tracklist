@@ -1,5 +1,6 @@
 # Local data / per-run output
 logs/
+output/
 *_songs.csv
 *_songs.txt
 *_matches.jsonl

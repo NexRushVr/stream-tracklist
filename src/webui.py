@@ -304,7 +304,7 @@ class JobManager:
 
 # ---------------------------------------------------------------- routes
 
-def create_app(log_dir: str = "logs", output_dir: str = ".") -> "Flask":
+def create_app(log_dir: str = "logs", output_dir: str = "output") -> "Flask":
     if Flask is None:
         raise RuntimeError(
             "Flask is not installed. Run `pip install -r requirements.txt`."
@@ -510,7 +510,7 @@ def create_app(log_dir: str = "logs", output_dir: str = ".") -> "Flask":
 
 def serve(host: str = "127.0.0.1", port: int = 8731,
           open_window: bool = True, log_dir: str = "logs",
-          output_dir: str = ".") -> None:
+          output_dir: str = "output") -> None:
     """Start Flask in a background thread and (optionally) a pywebview window.
 
     If pywebview isn't installed we fall back to printing the URL — Flask

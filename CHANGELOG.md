@@ -6,6 +6,17 @@ versioning follows [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **`--output-dir` now defaults to `output/`** instead of the project root.
+  Per-VOD `*_songs.csv`, `*_songs.txt`, and `*_matches.jsonl` files used to
+  spam the working tree (hundreds of files at the top level after a few
+  streamer runs). They're gitignored either way, but git status, IDE file
+  trees, and backups all get cleaner. Ships with a one-shot
+  `migrate_output.py` (idempotent, dry-run via `--dry`) that moves any
+  pre-existing files into `./output/` so `--rebuild`, `--backfill-spotify`,
+  and the Spotify search-cache prime all keep finding them under the new
+  default. `output/` added to `.gitignore`.
+
 ### Added
 - **Local web UI** (`python stream_songs.py --serve`) — Flask backend +
   single-page HTML, opens in a native window via pywebview when available

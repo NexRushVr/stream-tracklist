@@ -80,8 +80,9 @@ def parse_args() -> argparse.Namespace:
                         help="Seconds between recognition samples (default: 120)")
     parser.add_argument("--clip-duration", type=int, default=20,
                         help="Duration of each audio clip in seconds (default: 20)")
-    parser.add_argument("--output-dir", default=".",
-                        help="Directory for output files (default: current dir)")
+    parser.add_argument("--output-dir", default="output",
+                        help="Directory for TXT / CSV / matches.jsonl files "
+                             "(default: ./output). Created on demand.")
     parser.add_argument("--output-name", default=None,
                         help="Base filename for output — single-VOD mode only")
     parser.add_argument("--max-duration", type=int, default=86400,
