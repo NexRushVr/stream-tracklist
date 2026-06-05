@@ -30,12 +30,24 @@ from . import __version__, streamer_log
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _CLI = os.path.join(_REPO_ROOT, "stream_songs.py")
-_TEMPLATES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "webui_templates")
+# UI assets live under gui/web/ so they're trivially co-locatable with the
+# pywebview launcher and ride into the PyInstaller bundle via a single
+# `datas=[('gui/web','web')]` entry. When frozen, gui/app.py overrides this
+# with a sys._MEIPASS path before create_app() runs.
+_TEMPLATES = os.environ.get(
+    "STREAM_TRACKLIST_TEMPLATES",
+    os.path.join(_REPO_ROOT, "gui", "web"),
+)
 
 # Cap per-job event history so a multi-hour scan can't balloon memory.
 _MAX_EVENTS_PER_JOB = 10_000
 # Cap concurrent jobs so a fat-fingered click can't fork-bomb the box.
 _MAX_CONCURRENT = 4
+
+# When the GUI is launched as a frozen windowed exe (no console attached),
+# every child Popen() would otherwise flash a console window. Suppress it on
+# Windows. Always harmless — non-Windows platforms don't define the flag.
+_CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 # ---------------------------------------------------------------- parser
@@ -207,7 +219,7 @@ class JobManager:
             cmd, cwd=_REPO_ROOT,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             bufsize=1, text=True, encoding="utf-8", errors="replace",
-            env=env,
+            env=env, creationflags=_CREATE_NO_WINDOW,
         )
         job.proc = proc
 

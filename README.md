@@ -80,6 +80,10 @@ python stream_songs.py [OPTIONS] SOURCE
 
 ### Web UI (easiest)
 
+**Windows users:** grab `stream-tracklist.exe` from the [latest release](https://github.com/NexRushVr/stream-tracklist/releases/latest), drop it in a folder, run [install.bat](install.bat) once to build the local `.venv` (downloads spotipy / shazamio / yt-dlp / flask), then double-click the exe.
+
+**From source (any platform):**
+
 ```bash
 python stream_songs.py --serve
 ```

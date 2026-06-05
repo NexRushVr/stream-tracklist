@@ -6,6 +6,14 @@ output/
 *_matches.jsonl
 *.log
 
+# PyInstaller build artifacts (the build is reproducible from build_gui.ps1
+# — no need to commit the regenerated .spec or the binaries)
+build/
+dist/
+*.spec
+stream-tracklist.exe
+gui_debug.log
+
 # Local scheduler artifacts (the *.example.bat versions are committed)
 scheduled_daily_scan.bat
 daily_streamers.local.txt

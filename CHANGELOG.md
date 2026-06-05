@@ -6,7 +6,35 @@ versioning follows [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Standalone Windows `stream-tracklist.exe`** — a thin pywebview shell
+  that drives the existing CLI. Double-click it (after a one-time
+  `install.bat` that creates the local `.venv` and pip-installs
+  `requirements.txt`) and the UI opens in a native window pointed at a
+  freshly-spawned Flask backend. The exe is ~12 MB because it bundles
+  only the window code (pywebview + `clr_loader`); the heavy runtime
+  stack (spotipy / shazamio / yt-dlp / flask) lives in the `.venv` and
+  is what install.bat downloads, so the user controls those versions.
+- `gui/` directory mirroring the sibling [twitch-highlights](https://github.com/NexRushVr/twitch-highlights)
+  project's proven layout: `gui/app.py` (pywebview entry + Edge WebView2
+  registry probe), `gui/paths.py` (frozen-vs-source path resolution),
+  `gui/web/index.html` (the single-page UI). `install.bat` builds the
+  venv, `gui.bat` runs the GUI from source, `build_gui.ps1` packages
+  the exe via PyInstaller.
+- `.github/workflows/release.yml` — pushes a tagged `v*` release build
+  the exe on `windows-latest` and attaches `stream-tracklist.exe` to
+  the GitHub Release. Also supports `workflow_dispatch` for on-demand
+  builds.
+- `STREAM_TRACKLIST_GUI_DEBUG=1` env-var hook in `gui/app.py` writes a
+  per-step launch trace to `gui_debug.log`. Cheap when unset; the only
+  way to diagnose a silent failure in the `--noconsole` exe.
+- `CREATE_NO_WINDOW` on `JobManager`'s subprocess spawn so CLI runs
+  triggered from the GUI don't flash a console window.
+
 ### Changed
+- UI templates moved from `src/webui_templates/` to `gui/web/` so the
+  PyInstaller spec can pack them with a single `--add-data` line and
+  `paths.resource_path()` finds them under `_MEIPASS` when frozen.
 - **`--output-dir` now defaults to `output/`** instead of the project root.
   Per-VOD `*_songs.csv`, `*_songs.txt`, and `*_matches.jsonl` files used to
   spam the working tree (hundreds of files at the top level after a few

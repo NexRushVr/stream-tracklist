@@ -1,0 +1,76 @@
+name: release
+
+# Build the Windows GUI exe and attach it to a GitHub Release whenever a
+# v* tag is pushed (e.g. `git tag v1.1.0 && git push --tags`).
+#
+# The exe is the thin-shell desktop launcher (gui/app.py): it spawns the
+# user's local .venv python to run stream_songs.py --serve, then opens a
+# pywebview window. Total artifact ~12 MB.
+#
+# To rebuild on demand without a tag, trigger via workflow_dispatch.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed for softprops/action-gh-release to attach assets
+
+jobs:
+  build-windows-exe:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Create .venv and install full runtime requirements
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .venv\Scripts\python.exe -m pip install --upgrade pip wheel
+          .venv\Scripts\python.exe -m pip install -r requirements.txt
+
+      - name: Build stream-tracklist.exe
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File build_gui.ps1
+
+      - name: Smoke-check the artifact
+        shell: pwsh
+        run: |
+          if (-not (Test-Path dist\stream-tracklist.exe)) {
+            Write-Error "stream-tracklist.exe was not produced"; exit 1
+          }
+          $size = (Get-Item dist\stream-tracklist.exe).Length
+          Write-Output "Built artifact: $size bytes"
+          if ($size -lt 5MB) { Write-Error "Suspiciously small build"; exit 1 }
+
+      - name: Upload artifact (for workflow_dispatch runs)
+        uses: actions/upload-artifact@v4
+        with:
+          name: stream-tracklist-windows
+          path: dist/stream-tracklist.exe
+          if-no-files-found: error
+
+      - name: Publish to GitHub Release (tagged runs only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/stream-tracklist.exe
+          generate_release_notes: true
+          body: |
+            ## Downloads
+
+            **Windows:** `stream-tracklist.exe` below — drop it in a folder
+            with the project files, run `install.bat` once to create the
+            local `.venv`, then double-click the exe. See the
+            [README](https://github.com/${{ github.repository }}#web-ui-easiest)
+            for the full first-run walkthrough.
